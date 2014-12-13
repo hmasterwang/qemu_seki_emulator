@@ -554,6 +554,22 @@ static QemuOptsList qemu_icount_opts = {
     },
 };
 
+static QemuOptsList qemu_semihosting_config_opts = {
+    .name = "semihosting-config",
+    .implied_opt_name = "enable",
+    .head = QTAILQ_HEAD_INITIALIZER(qemu_semihosting_config_opts.head),
+    .desc = {
+        {
+            .name = "enable",
+            .type = QEMU_OPT_BOOL,
+        }, {
+            .name = "target",
+            .type = QEMU_OPT_STRING,
+        },
+        { /* end of list */ }
+    },
+};
+
 /**
  * Get machine options
  *
@@ -2284,7 +2300,7 @@ static int mon_init_func(QemuOpts *opts, void *opaque)
     return 0;
 }
 
-static void monitor_parse(const char *optarg, const char *mode)
+static void monitor_parse(const char *optarg, const char *mode, bool pretty)
 {
     static int monitor_device_index = 0;
     QemuOpts *opts;
@@ -2314,6 +2330,7 @@ static void monitor_parse(const char *optarg, const char *mode)
     }
     qemu_opt_set(opts, "mode", mode);
     qemu_opt_set(opts, "chardev", label);
+    qemu_opt_set_bool(opts, "pretty", pretty);
     if (def)
         qemu_opt_set(opts, "default", "on");
     monitor_device_index++;
@@ -2811,6 +2828,7 @@ int main(int argc, char **argv, char **envp)
     qemu_add_opts(&qemu_name_opts);
     qemu_add_opts(&qemu_numa_opts);
     qemu_add_opts(&qemu_icount_opts);
+    qemu_add_opts(&qemu_semihosting_config_opts);
 
     runstate_init();
 
@@ -3292,11 +3310,15 @@ int main(int argc, char **argv, char **envp)
             case QEMU_OPTION_monitor:
                 default_monitor = 0;
                 if (strncmp(optarg, "none", 4)) {
-                    monitor_parse(optarg, "readline");
+                    monitor_parse(optarg, "readline", false);
                 }
                 break;
             case QEMU_OPTION_qmp:
-                monitor_parse(optarg, "control");
+                monitor_parse(optarg, "control", false);
+                default_monitor = 0;
+                break;
+            case QEMU_OPTION_qmp_pretty:
+                monitor_parse(optarg, "control", true);
                 default_monitor = 0;
                 break;
             case QEMU_OPTION_mon:
@@ -3618,6 +3640,37 @@ int main(int argc, char **argv, char **envp)
 		break;
             case QEMU_OPTION_semihosting:
                 semihosting_enabled = 1;
+                semihosting_target = SEMIHOSTING_TARGET_AUTO;
+                break;
+            case QEMU_OPTION_semihosting_config:
+                semihosting_enabled = 1;
+                opts = qemu_opts_parse(qemu_find_opts("semihosting-config"),
+                                           optarg, 0);
+                if (opts != NULL) {
+                    semihosting_enabled = qemu_opt_get_bool(opts, "enable",
+                                                            true);
+                    const char *target = qemu_opt_get(opts, "target");
+                    if (target != NULL) {
+                        if (strcmp("native", target) == 0) {
+                            semihosting_target = SEMIHOSTING_TARGET_NATIVE;
+                        } else if (strcmp("gdb", target) == 0) {
+                            semihosting_target = SEMIHOSTING_TARGET_GDB;
+                        } else  if (strcmp("auto", target) == 0) {
+                            semihosting_target = SEMIHOSTING_TARGET_AUTO;
+                        } else {
+                            fprintf(stderr, "Unsupported semihosting-config"
+                                    " %s\n",
+                                optarg);
+                            exit(1);
+                        }
+                    } else {
+                        semihosting_target = SEMIHOSTING_TARGET_AUTO;
+                    }
+                } else {
+                    fprintf(stderr, "Unsupported semihosting-config %s\n",
+                            optarg);
+                    exit(1);
+                }
                 break;
             case QEMU_OPTION_tdf:
                 fprintf(stderr, "Warning: user space PIT time drift fix "
@@ -3994,7 +4047,7 @@ int main(int argc, char **argv, char **envp)
                 add_device_config(DEV_SCLP, "stdio");
             }
             if (default_monitor)
-                monitor_parse("stdio", "readline");
+                monitor_parse("stdio", "readline", false);
         }
     } else {
         if (default_serial)
@@ -4002,7 +4055,7 @@ int main(int argc, char **argv, char **envp)
         if (default_parallel)
             add_device_config(DEV_PARALLEL, "vc:80Cx24C");
         if (default_monitor)
-            monitor_parse("vc:80Cx24C", "readline");
+            monitor_parse("vc:80Cx24C", "readline", false);
         if (default_virtcon)
             add_device_config(DEV_VIRTCON, "vc:80Cx24C");
         if (default_sclp) {

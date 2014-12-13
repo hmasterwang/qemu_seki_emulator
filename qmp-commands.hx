@@ -2347,7 +2347,7 @@ EQMP
 
     {
         .name       = "query-blockstats",
-        .args_type  = "",
+        .args_type  = "query-nodes:b?",
         .mhandler.cmd_new = qmp_marshal_input_query_blockstats,
     },
 
@@ -3820,13 +3820,13 @@ Press left mouse button.
 -> { "execute": "x-input-send-event",
     "arguments": { "console": 0,
                    "events": [ { "type": "btn",
-                    "data" : { "down": true, "button": "Left" } } } }
+                    "data" : { "down": true, "button": "Left" } } ] } }
 <- { "return": {} }
 
 -> { "execute": "x-input-send-event",
     "arguments": { "console": 0,
                    "events": [ { "type": "btn",
-                    "data" : { "down": false, "button": "Left" } } } }
+                    "data" : { "down": false, "button": "Left" } } ] } }
 <- { "return": {} }
 
 Example (2):
