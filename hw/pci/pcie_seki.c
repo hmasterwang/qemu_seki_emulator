@@ -20,7 +20,7 @@
 
 #include "hw/pci/pcie_port.h"
 #include "hw/pci/msi.h"
-#include "hw/pci/pci_bridge.h"
+//#include "hw/pci/pci_bridge.h"
 
 typedef struct PCIE_Seki_Device_State {
     PCIEPort parent_obj;
@@ -49,7 +49,8 @@ static int pcie_seki_init(PCIDevice *dev)
         abort();
     }
 
-    rv = pci_bridge_ssvid_init(dev, 0x80, 0, 0);
+    // A259 = Hewlett packard, 1172 = Altera
+    rv = pci_bridge_ssvid_init(dev, 0x80, 0x1172, 0xA259);
     if (rv < 0) {
         fprintf(stderr, "SSVID init failed: %d\n", rv);
         abort();
@@ -78,7 +79,6 @@ static void pcie_seki_uninit(PCIDevice *dev)
     pcie_aer_exit(dev);
     pcie_cap_exit(dev);
     msi_uninit(dev);
-    pci_bridge_exitfn(dev);
 
     return;
 }
@@ -88,13 +88,11 @@ static void pcie_seki_reset(DeviceState *qdev)
     PCIDevice *dev = PCI_DEVICE(qdev);
 
     pcie_cap_deverr_reset(dev);
-    pci_bridge_reset(qdev);
 }
 
 static void pcie_seki_write_config(PCIDevice *dev,
                                    uint32_t address, uint32_t val, int len)
 {
-//    pci_bridge_write_config(dev, address, val, len);
     pcie_cap_flr_write_config(dev, address, val, len);
     pcie_aer_write_config(dev, address, val, len);
 }
