@@ -1,7 +1,7 @@
 /*
  * pcie_seki.c
  *
- * Copyright (c) 2014 Afa.L Cheng <alpha@alpha.moe>
+ * Copyright (c) 2014 Afa.L Cheng <afa@afa.moe>
  *                    Rosen Center for Advanced Computing, Purdue University
  *
  * This program is free software; you can redistribute it and/or modify
@@ -39,7 +39,6 @@ static int pcie_seki_init(PCIDevice *dev)
 
     (void)(seki);
 
-    // Init PCIe Port Reg
     pcie_port_init_reg(dev);
 
     rv = msi_init(dev, 0x70, 0x01,
@@ -118,7 +117,6 @@ static void pcie_seki_class_init(ObjectClass *oc, void *data)
     PCIDeviceClass *pdc = PCI_DEVICE_CLASS(oc);
 
     pdc->is_express = 1;
-//    pdc->is_bridge  = 1;
     pdc->init       = pcie_seki_init;
     pdc->exit       = pcie_seki_uninit;
     pdc->config_write = pcie_seki_write_config;
