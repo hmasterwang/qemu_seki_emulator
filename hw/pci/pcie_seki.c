@@ -20,10 +20,11 @@
 
 #include "hw/pci/pcie_port.h"
 #include "hw/pci/msi.h"
-//#include "hw/pci/pci_bridge.h"
 
 typedef struct PCIE_Seki_Device_State {
     PCIEPort parent_obj;
+
+    MemoryRegion mmio;
 } PCIESekiDeviceState;
 
 #define TYPE_PCIE_SEKI_DEVICE "pcie-seki"
@@ -31,47 +32,83 @@ typedef struct PCIE_Seki_Device_State {
 #define PCIE_SEKI_DEV(obj) \
     OBJECT_CHECK(PCIESekiDeviceState, (obj), TYPE_PCIE_SEKI_DEVICE)
 
+static uint64_t
+seki_mmio_read(void *opaque, hwaddr addr, unsigned size)
+{
+    fprintf(stderr, "MMIO Read at %16lx, size %8x\n", addr, size);
+    return 0;
+}
+
+static void
+seki_mmio_write(void *opaque, hwaddr addr, uint64_t val,
+                 unsigned size)
+{
+    fprintf(stderr, "MMIO Write at %16lx, size %8x, value %lx\n",
+            addr, size, val);
+}
+
+static const MemoryRegionOps seki_mmio_ops = {
+    .read   = seki_mmio_read,
+    .write  = seki_mmio_write,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+    .impl = {
+        .min_access_size = 4,
+        .max_access_size = 4,
+    },
+};
+
 static int pcie_seki_init(PCIDevice *dev)
 {
     PCIESekiDeviceState *seki = PCIE_SEKI_DEV(dev);
     PCIEPort *p = PCIE_PORT(dev);
     int rv;
 
-    (void)(seki);
-
     pcie_port_init_reg(dev);
+
+    // Setup MMIO
+    memory_region_init_io(&seki->mmio, OBJECT(seki), &seki_mmio_ops,
+                          seki, "seki-mmio", 0x100000); // 1MB 0x100000
+
+    pci_register_bar(dev, 0, PCI_BASE_ADDRESS_MEM_TYPE_64 |
+                     PCI_BASE_ADDRESS_SPACE_MEMORY, &seki->mmio);
 
     rv = msi_init(dev, 0x70, 0x01,
                   PCI_MSI_FLAGS_64BIT & PCI_MSI_FLAGS_64BIT,
                   PCI_MSI_FLAGS_64BIT & PCI_MSI_FLAGS_MASKBIT);
-    if (rv < 0) {
-        fprintf(stderr, "MSI init failed: %d\n", rv);
-        abort();
-    }
+    if (rv < 0)
+        goto err;
 
-    // A259 = Hewlett packard, 1172 = Altera
-    rv = pci_bridge_ssvid_init(dev, 0x80, 0x1172, 0xA259);
-    if (rv < 0) {
-        fprintf(stderr, "SSVID init failed: %d\n", rv);
-        abort();
-    }
+    // 103C = Hewlett-Packard, 1172 = Altera
+    rv = pci_bridge_ssvid_init(dev, 0x80, 0x1172, 0x103C);
+    if (rv < 0)
+        goto err;
 
     rv = pcie_cap_init(dev, 0x90, PCI_EXP_TYPE_ENDPOINT, p->port);
-    if (rv < 0) {
-        fprintf(stderr, "PCIE CAP init failed: %d\n", rv);
-        abort();
-    }
+    if (rv < 0)
+        goto err_msi;
 
     pcie_cap_flr_init(dev);
     pcie_cap_deverr_init(dev);
 
+    // From PCIe 1.0 Spec:
+    // Extended Capabilities in device configuration space always begin at
+    // offset 100h with a PCI Express Enhanced Capability Header (Section 5.9.3).
+
+    // The PCI Express Advanced Error Reporting capability is an optional
+    // extended capability ...
     rv = pcie_aer_init(dev, 0x100);
-    if (rv < 0) {
-        fprintf(stderr, "PCIE AER init failed: %d\n", rv);
-        abort();
-    }
+    if (rv < 0)
+        goto err_cap;
 
     return 0;
+
+    // Errors:
+err_cap:
+    pcie_cap_exit(dev);
+err_msi:
+    msi_uninit(dev);
+err:
+    return rv;
 }
 
 static void pcie_seki_uninit(PCIDevice *dev)
@@ -93,6 +130,8 @@ static void pcie_seki_reset(DeviceState *qdev)
 static void pcie_seki_write_config(PCIDevice *dev,
                                    uint32_t address, uint32_t val, int len)
 {
+//    fprintf(stderr, "CW: Addr: %x, Val: %x, Len: %x\n", address, val, len);
+    pci_default_write_config(dev, address, val, len);
     pcie_cap_flr_write_config(dev, address, val, len);
     pcie_aer_write_config(dev, address, val, len);
 }
@@ -123,7 +162,7 @@ static void pcie_seki_class_init(ObjectClass *oc, void *data)
     pdc->revision   = 0x00;
     pdc->class_id   = PCI_CLASS_PROCESSOR_CO;
 
-    dc->desc        = "Seki Device";
+    dc->desc        = "Seki HPL Accelerator";
     dc->reset       = pcie_seki_reset;
     dc->vmsd        = &vmstate_pcie_seki;
 }
