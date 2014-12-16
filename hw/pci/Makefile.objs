@@ -1,4 +1,4 @@
-common-obj-$(CONFIG_PCI) += pcie_seki.o
+common-obj-$(CONFIG_PCI) += pcie_seki.o pcie_seki_mmio.o
 common-obj-$(CONFIG_PCI) += pci.o pci_bridge.o
 common-obj-$(CONFIG_PCI) += msix.o msi.o
 common-obj-$(CONFIG_PCI) += shpc.o
