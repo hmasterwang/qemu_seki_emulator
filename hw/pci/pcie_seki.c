@@ -24,7 +24,10 @@
 typedef struct PCIE_Seki_Device_State {
     PCIEPort parent_obj;
 
-    MemoryRegion mmio;
+    MemoryRegion ctrl_memregion;
+    MemoryRegion input_memregion;
+    MemoryRegion output_memregion;
+
 } PCIESekiDeviceState;
 
 #define TYPE_PCIE_SEKI_DEVICE "pcie-seki"
@@ -32,30 +35,86 @@ typedef struct PCIE_Seki_Device_State {
 #define PCIE_SEKI_DEV(obj) \
     OBJECT_CHECK(PCIESekiDeviceState, (obj), TYPE_PCIE_SEKI_DEVICE)
 
+
+// Ctrl Memory Region
 static uint64_t
-seki_mmio_read(void *opaque, hwaddr addr, unsigned size)
+seki_ctrl_memregion_read(void *opaque, hwaddr addr, unsigned size)
 {
-    fprintf(stderr, "MMIO Read at %16lx, size %8x\n", addr, size);
+    fprintf(stderr, "CTRL MMIO Read at %16lx, size %8x\n", addr, size);
     return 0;
 }
 
 static void
-seki_mmio_write(void *opaque, hwaddr addr, uint64_t val,
+seki_ctrl_memregion_write(void *opaque, hwaddr addr, uint64_t val,
                  unsigned size)
 {
-    fprintf(stderr, "MMIO Write at %16lx, size %8x, value %lx\n",
+    fprintf(stderr, "CTRL MMIO Write at %16lx, size %8x, value %lx\n",
             addr, size, val);
 }
 
-static const MemoryRegionOps seki_mmio_ops = {
-    .read   = seki_mmio_read,
-    .write  = seki_mmio_write,
+static const MemoryRegionOps seki_ctrl_memregion_ops = {
+    .read   = seki_ctrl_memregion_read,
+    .write  = seki_ctrl_memregion_write,
     .endianness = DEVICE_LITTLE_ENDIAN,
     .impl = {
         .min_access_size = 4,
         .max_access_size = 4,
     },
 };
+
+// Input Memory Region
+static uint64_t
+seki_input_memregion_read(void *opaque, hwaddr addr, unsigned size)
+{
+    fprintf(stderr, "INPUT MMIO Read at %16lx, size %8x\n", addr, size);
+    return 0;
+}
+
+static void
+seki_input_memregion_write(void *opaque, hwaddr addr, uint64_t val,
+                 unsigned size)
+{
+    fprintf(stderr, "INPUT MMIO Write at %16lx, size %8x, value %lx\n",
+            addr, size, val);
+}
+
+static const MemoryRegionOps seki_input_memregion_ops = {
+    .read   = seki_input_memregion_read,
+    .write  = seki_input_memregion_write,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+    .impl = {
+        .min_access_size = 4,
+        .max_access_size = 4,
+    },
+};
+
+// Output Memory Region
+static uint64_t
+seki_output_memregion_read(void *opaque, hwaddr addr, unsigned size)
+{
+    fprintf(stderr, "OUTPUT MMIO Read at %16lx, size %8x\n", addr, size);
+    return 0;
+}
+
+static void
+seki_output_memregion_write(void *opaque, hwaddr addr, uint64_t val,
+                 unsigned size)
+{
+    fprintf(stderr, "OUTPUT MMIO Write at %16lx, size %8x, value %lx\n",
+            addr, size, val);
+}
+
+static const MemoryRegionOps seki_output_memregion_ops = {
+    .read   = seki_output_memregion_read,
+    .write  = seki_output_memregion_write,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+    .impl = {
+        .min_access_size = 4,
+        .max_access_size = 4,
+    },
+};
+// End of MMIO functions/data structures
+
 
 static int pcie_seki_init(PCIDevice *dev)
 {
@@ -65,12 +124,30 @@ static int pcie_seki_init(PCIDevice *dev)
 
     pcie_port_init_reg(dev);
 
-    // Setup MMIO
-    memory_region_init_io(&seki->mmio, OBJECT(seki), &seki_mmio_ops,
+    // Setup MMIO, each 64-bit BAR takes 2 registers
+    // Control/Status Registers
+    memory_region_init_io(&seki->ctrl_memregion, OBJECT(seki), &seki_ctrl_memregion_ops,
                           seki, "seki-mmio", 0x100000); // 1MB 0x100000
 
     pci_register_bar(dev, 0, PCI_BASE_ADDRESS_MEM_TYPE_64 |
-                     PCI_BASE_ADDRESS_SPACE_MEMORY, &seki->mmio);
+                     PCI_BASE_ADDRESS_SPACE_MEMORY, &seki->ctrl_memregion);
+
+    // Input Memory
+    memory_region_init_io(&seki->input_memregion, OBJECT(seki), &seki_input_memregion_ops,
+                          seki, "seki-mmio", 0x8000000); // 128MB 0x8000000
+
+    pci_register_bar(dev, 2, PCI_BASE_ADDRESS_MEM_TYPE_64 |
+                     PCI_BASE_ADDRESS_SPACE_MEMORY, &seki->input_memregion);
+
+    // Output Memory
+    memory_region_init_io(&seki->output_memregion, OBJECT(seki), &seki_output_memregion_ops,
+                          seki, "seki-mmio", 0x4000000); // 64MB 0x8000000
+
+    pci_register_bar(dev, 4, PCI_BASE_ADDRESS_MEM_TYPE_64 |
+                     PCI_BASE_ADDRESS_SPACE_MEMORY, &seki->output_memregion);
+    // End of setup MMIO.
+    // TODO: Extract MMIO setup to new function
+
 
     rv = msi_init(dev, 0x70, 0x01,
                   PCI_MSI_FLAGS_64BIT & PCI_MSI_FLAGS_64BIT,
