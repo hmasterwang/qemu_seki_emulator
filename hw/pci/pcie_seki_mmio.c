@@ -24,7 +24,7 @@
 static uint64_t
 seki_ctrl_memregion_read(void *opaque, hwaddr addr, unsigned size)
 {
-    fprintf(stderr, "CTRL MMIO Read at %16lx, size %8x\n", addr, size);
+    fprintf(stderr, "CTRL MMIO Read at 0x%16lx, size 0x%8x\n", addr, size);
     return 0;
 }
 
@@ -32,7 +32,7 @@ static void
 seki_ctrl_memregion_write(void *opaque, hwaddr addr, uint64_t val,
                  unsigned size)
 {
-    fprintf(stderr, "CTRL MMIO Write at %16lx, size %8x, value %lx\n",
+    fprintf(stderr, "CTRL MMIO Write at 0x%16lx, size 0x%8x, value 0x%lx\n",
             addr, size, val);
 }
 
@@ -50,7 +50,7 @@ const MemoryRegionOps seki_ctrl_memregion_ops = {
 static uint64_t
 seki_input_memregion_read(void *opaque, hwaddr addr, unsigned size)
 {
-    fprintf(stderr, "INPUT MMIO Read at %16lx, size %8x\n", addr, size);
+    fprintf(stderr, "INPUT MMIO Read at 0x%16lx, size 0x%8x\n", addr, size);
     return 0;
 }
 
@@ -58,7 +58,7 @@ static void
 seki_input_memregion_write(void *opaque, hwaddr addr, uint64_t val,
                  unsigned size)
 {
-    fprintf(stderr, "INPUT MMIO Write at %16lx, size %8x, value %lx\n",
+    fprintf(stderr, "INPUT MMIO Write at 0x%16lx, size 0x%8x, value 0x%lx\n",
             addr, size, val);
 }
 
@@ -76,7 +76,7 @@ const MemoryRegionOps seki_input_memregion_ops = {
 static uint64_t
 seki_output_memregion_read(void *opaque, hwaddr addr, unsigned size)
 {
-    fprintf(stderr, "OUTPUT MMIO Read at %16lx, size %8x\n", addr, size);
+    fprintf(stderr, "OUTPUT MMIO Read at 0x%16lx, size 0x%8x\n", addr, size);
     return 0;
 }
 
@@ -84,7 +84,7 @@ static void
 seki_output_memregion_write(void *opaque, hwaddr addr, uint64_t val,
                  unsigned size)
 {
-    fprintf(stderr, "OUTPUT MMIO Write at %16lx, size %8x, value %lx\n",
+    fprintf(stderr, "OUTPUT MMIO Write at 0x%16lx, size 0x%8x, value 0x%lx\n",
             addr, size, val);
 }
 
