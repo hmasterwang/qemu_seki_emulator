@@ -120,11 +120,13 @@ bool kvm_async_interrupts_allowed;
 bool kvm_halt_in_kernel_allowed;
 bool kvm_eventfds_allowed;
 bool kvm_irqfds_allowed;
+bool kvm_resamplefds_allowed;
 bool kvm_msi_via_irqfd_allowed;
 bool kvm_gsi_routing_allowed;
 bool kvm_gsi_direct_mapping;
 bool kvm_allowed;
 bool kvm_readonly_mem_allowed;
+bool kvm_vm_attributes_allowed;
 
 static const KVMCapabilityInfo kvm_required_capabilites[] = {
     KVM_CAP_INFO(USER_MEMORY),
@@ -365,7 +367,7 @@ static void kvm_log_stop(MemoryListener *listener,
     }
 }
 
-static int kvm_set_migration_log(int enable)
+static int kvm_set_migration_log(bool enable)
 {
     KVMState *s = kvm_state;
     KVMSlot *mem;
@@ -416,7 +418,7 @@ static int kvm_physical_sync_dirty_bitmap(MemoryRegionSection *section)
 {
     KVMState *s = kvm_state;
     unsigned long size, allocated_size = 0;
-    KVMDirtyLog d;
+    KVMDirtyLog d = {};
     KVMSlot *mem;
     int ret = 0;
     hwaddr start_addr = section->offset_within_address_space;
@@ -1224,6 +1226,10 @@ int kvm_irqchip_add_msi_route(KVMState *s, MSIMessage msg)
     kroute.u.msi.address_lo = (uint32_t)msg.address;
     kroute.u.msi.address_hi = msg.address >> 32;
     kroute.u.msi.data = le32_to_cpu(msg.data);
+    if (kvm_arch_fixup_msi_route(&kroute, msg.address, msg.data)) {
+        kvm_irqchip_release_virq(s, virq);
+        return -EINVAL;
+    }
 
     kvm_add_routing_entry(s, &kroute);
     kvm_irqchip_commit_routes(s);
@@ -1249,6 +1255,9 @@ int kvm_irqchip_update_msi_route(KVMState *s, int virq, MSIMessage msg)
     kroute.u.msi.address_lo = (uint32_t)msg.address;
     kroute.u.msi.address_hi = msg.address >> 32;
     kroute.u.msi.data = le32_to_cpu(msg.data);
+    if (kvm_arch_fixup_msi_route(&kroute, msg.address, msg.data)) {
+        return -EINVAL;
+    }
 
     return kvm_update_routing_entry(s, &kroute);
 }
@@ -1276,7 +1285,7 @@ static int kvm_irqchip_assign_irqfd(KVMState *s, int fd, int rfd, int virq,
 
 int kvm_irqchip_add_adapter_route(KVMState *s, AdapterInfo *adapter)
 {
-    struct kvm_irq_routing_entry kroute;
+    struct kvm_irq_routing_entry kroute = {};
     int virq;
 
     if (!kvm_gsi_routing_enabled()) {
@@ -1352,11 +1361,11 @@ int kvm_irqchip_remove_irqfd_notifier(KVMState *s, EventNotifier *n, int virq)
            false);
 }
 
-static int kvm_irqchip_create(KVMState *s)
+static int kvm_irqchip_create(MachineState *machine, KVMState *s)
 {
     int ret;
 
-    if (!qemu_opt_get_bool(qemu_get_machine_opts(), "kernel_irqchip", true) ||
+    if (!machine_kernel_irqchip_allowed(machine) ||
         (!kvm_check_extension(s, KVM_CAP_IRQCHIP) &&
          (kvm_vm_enable_cap(s, KVM_CAP_S390_IRQCHIP, 0) < 0))) {
         return 0;
@@ -1584,12 +1593,21 @@ static int kvm_init(MachineState *ms)
     kvm_eventfds_allowed =
         (kvm_check_extension(s, KVM_CAP_IOEVENTFD) > 0);
 
-    ret = kvm_arch_init(s);
+    kvm_irqfds_allowed =
+        (kvm_check_extension(s, KVM_CAP_IRQFD) > 0);
+
+    kvm_resamplefds_allowed =
+        (kvm_check_extension(s, KVM_CAP_IRQFD_RESAMPLE) > 0);
+
+    kvm_vm_attributes_allowed =
+        (kvm_check_extension(s, KVM_CAP_VM_ATTRIBUTES) > 0);
+
+    ret = kvm_arch_init(ms, s);
     if (ret < 0) {
         goto err;
     }
 
-    ret = kvm_irqchip_create(s);
+    ret = kvm_irqchip_create(ms, s);
     if (ret < 0) {
         goto err;
     }
@@ -1922,6 +1940,23 @@ int kvm_device_ioctl(int fd, int type, ...)
     return ret;
 }
 
+int kvm_vm_check_attr(KVMState *s, uint32_t group, uint64_t attr)
+{
+    int ret;
+    struct kvm_device_attr attribute = {
+        .group = group,
+        .attr = attr,
+    };
+
+    if (!kvm_vm_attributes_allowed) {
+        return 0;
+    }
+
+    ret = kvm_vm_ioctl(s, KVM_HAS_DEVICE_ATTR, &attribute);
+    /* kvm returns 0 on success for HAS_DEVICE_ATTR */
+    return ret ? 0 : 1;
+}
+
 int kvm_has_sync_mmu(void)
 {
     return kvm_check_extension(kvm_state, KVM_CAP_SYNC_MMU);
@@ -2056,10 +2091,6 @@ int kvm_insert_breakpoint(CPUState *cpu, target_ulong addr,
         }
 
         bp = g_malloc(sizeof(struct kvm_sw_breakpoint));
-        if (!bp) {
-            return -ENOMEM;
-        }
-
         bp->pc = addr;
         bp->use_count = 1;
         err = kvm_arch_insert_sw_breakpoint(cpu, bp);

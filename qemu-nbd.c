@@ -228,8 +228,7 @@ static int tcp_socket_incoming(const char *address, uint16_t port)
     int fd = inet_listen(address_and_port, NULL, 0, SOCK_STREAM, 0, &local_err);
 
     if (local_err != NULL) {
-        error_report("%s", error_get_pretty(local_err));
-        error_free(local_err);
+        error_report_err(local_err);
     }
     return fd;
 }
@@ -240,8 +239,7 @@ static int unix_socket_incoming(const char *path)
     int fd = unix_listen(path, NULL, 0, &local_err);
 
     if (local_err != NULL) {
-        error_report("%s", error_get_pretty(local_err));
-        error_free(local_err);
+        error_report_err(local_err);
     }
     return fd;
 }
@@ -252,8 +250,7 @@ static int unix_socket_outgoing(const char *path)
     int fd = unix_connect(path, &local_err);
 
     if (local_err != NULL) {
-        error_report("%s", error_get_pretty(local_err));
-        error_free(local_err);
+        error_report_err(local_err);
     }
     return fd;
 }
@@ -284,6 +281,7 @@ static void *nbd_client_thread(void *arg)
     int fd, sock;
     int ret;
     pthread_t show_parts_thread;
+    Error *local_error = NULL;
 
     sock = unix_socket_outgoing(sockpath);
     if (sock < 0) {
@@ -291,8 +289,12 @@ static void *nbd_client_thread(void *arg)
     }
 
     ret = nbd_receive_negotiate(sock, NULL, &nbdflags,
-                                &size, &blocksize);
+                                &size, &blocksize, &local_error);
     if (ret < 0) {
+        if (local_error) {
+            fprintf(stderr, "%s\n", error_get_pretty(local_error));
+            error_free(local_error);
+        }
         goto out_socket;
     }
 
@@ -386,7 +388,6 @@ int main(int argc, char **argv)
 {
     BlockBackend *blk;
     BlockDriverState *bs;
-    BlockDriver *drv;
     off_t dev_offset = 0;
     uint32_t nbdflags = 0;
     bool disconnect = false;
@@ -429,7 +430,7 @@ int main(int argc, char **argv)
     char *end;
     int flags = BDRV_O_RDWR;
     int partition = -1;
-    int ret;
+    int ret = 0;
     int fd;
     bool seen_cache = false;
     bool seen_discard = false;
@@ -440,6 +441,7 @@ int main(int argc, char **argv)
     const char *fmt = NULL;
     Error *local_err = NULL;
     BlockdevDetectZeroesOptions detect_zeroes = BLOCKDEV_DETECT_ZEROES_OPTIONS_OFF;
+    QDict *options = NULL;
 
     /* The client thread uses SIGTERM to interrupt the server.  A signal
      * handler ensures that "qemu-nbd -v -c" exits with a nice status code.
@@ -676,32 +678,24 @@ int main(int argc, char **argv)
     }
 
     if (qemu_init_main_loop(&local_err)) {
-        error_report("%s", error_get_pretty(local_err));
-        error_free(local_err);
+        error_report_err(local_err);
         exit(EXIT_FAILURE);
     }
     bdrv_init();
     atexit(bdrv_close_all);
 
     if (fmt) {
-        drv = bdrv_find_format(fmt);
-        if (!drv) {
-            errx(EXIT_FAILURE, "Unknown file format '%s'", fmt);
-        }
-    } else {
-        drv = NULL;
+        options = qdict_new();
+        qdict_put(options, "driver", qstring_from_str(fmt));
     }
-
-    blk = blk_new_with_bs("hda", &error_abort);
-    bs = blk_bs(blk);
 
     srcpath = argv[optind];
-    ret = bdrv_open(&bs, srcpath, NULL, NULL, flags, drv, &local_err);
-    if (ret < 0) {
-        errno = -ret;
-        err(EXIT_FAILURE, "Failed to bdrv_open '%s': %s", argv[optind],
-            error_get_pretty(local_err));
+    blk = blk_new_open("hda", srcpath, NULL, options, flags, &local_err);
+    if (!blk) {
+        errx(EXIT_FAILURE, "Failed to blk_new_open '%s': %s", argv[optind],
+             error_get_pretty(local_err));
     }
+    bs = blk_bs(blk);
 
     if (sn_opts) {
         ret = bdrv_snapshot_load_tmp(bs,

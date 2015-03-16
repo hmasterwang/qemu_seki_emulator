@@ -94,7 +94,7 @@ void virtio_scsi_vring_push_notify(VirtIOSCSIReq *req)
 {
     VirtIODevice *vdev = VIRTIO_DEVICE(req->vring->parent);
 
-    vring_push(&req->vring->vring, &req->elem,
+    vring_push(vdev, &req->vring->vring, &req->elem,
                req->qsgl.size + req->resp_iov.size);
 
     if (vring_should_notify(vdev, &req->vring->vring)) {
@@ -211,8 +211,6 @@ void virtio_scsi_dataplane_start(VirtIOSCSI *s)
 
     s->dataplane_starting = true;
 
-    assert(!s->blocker);
-    error_setg(&s->blocker, "block device is in use by data plane");
     /* Set up guest notifier (irq) */
     rc = k->set_guest_notifiers(qbus->parent, vs->conf.num_queues + 2, true);
     if (rc != 0) {
@@ -279,8 +277,6 @@ void virtio_scsi_dataplane_stop(VirtIOSCSI *s)
     if (!s->dataplane_started || s->dataplane_stopping) {
         return;
     }
-    error_free(s->blocker);
-    s->blocker = NULL;
     s->dataplane_stopping = true;
     assert(s->ctx == iothread_get_aio_context(vs->conf.iothread));
 
